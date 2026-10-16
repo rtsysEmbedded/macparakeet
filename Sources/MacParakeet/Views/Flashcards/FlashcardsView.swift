@@ -246,7 +246,11 @@ struct FlashcardsView: View {
         .padding(DesignSystem.Spacing.sm)
         .background(RoundedRectangle(cornerRadius: 8).fill(DesignSystem.Colors.surfaceElevated))
         .onChange(of: quickCardHotkey) { _, trigger in
-            FlashcardQuickCapture.setHotkey(trigger)
+            if trigger != FlashcardQuickCapture.hotkey() { FlashcardQuickCapture.setHotkey(trigger) }
+        }
+        // Settings has the same shortcut row; keep both in step.
+        .onReceive(NotificationCenter.default.publisher(for: .flashcardHotkeyTriggerDidChange)) { _ in
+            quickCardHotkey = FlashcardQuickCapture.hotkey()
         }
     }
 

@@ -117,6 +117,7 @@ struct SettingsView: View {
     /// Owned by this view rather than the app: the sheet is the only consumer,
     /// and it reloads from the store each time it opens.
     @State private var advancedTranscriptionExpanded = false
+    @State private var flashcardHotkey = FlashcardQuickCapture.hotkey()
 
     init(
         viewModel: SettingsViewModel,
@@ -1705,6 +1706,10 @@ struct SettingsView: View {
 
                 Divider()
 
+                flashcardHotkeyRow
+
+                Divider()
+
                 HStack(alignment: .center) {
                     rowText(
                         title: "Video download audio quality",
@@ -1816,6 +1821,28 @@ struct SettingsView: View {
                     transcriptionHotkeyConflictText(conflict)
                 }
             }
+        }
+    }
+
+    /// Fork: same setting as the shortcut row on the Flashcards page.
+    private var flashcardHotkeyRow: some View {
+        HStack(alignment: .center) {
+            rowText(
+                title: "Flashcard from selected word hotkey",
+                detail: "Select a word in any app and press this to make an Anki card for it with AI."
+            )
+            Spacer(minLength: DesignSystem.Spacing.md)
+            HotkeyRecorderView(
+                trigger: $flashcardHotkey,
+                defaultTrigger: FlashcardQuickCapture.defaultHotkey,
+                onRecordingStateChanged: onHotkeyRecordingStateChanged
+            )
+        }
+        .onChange(of: flashcardHotkey) { _, trigger in
+            if trigger != FlashcardQuickCapture.hotkey() { FlashcardQuickCapture.setHotkey(trigger) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .flashcardHotkeyTriggerDidChange)) { _ in
+            flashcardHotkey = FlashcardQuickCapture.hotkey()
         }
     }
 
