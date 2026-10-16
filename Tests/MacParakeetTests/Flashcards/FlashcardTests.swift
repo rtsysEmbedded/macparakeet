@@ -275,6 +275,37 @@ final class FlashcardGenerationParsingTests: XCTestCase {
         }
     }
 
+    func testSelectedWordMakesOneCardInDictionaryForm() async throws {
+        let llm = scriptedLLM([
+            #"[{"front": "gehen", "meanings": [{"meaning": "to go", "example": "Wir gehen.", "translation": "We go."}]}]"#
+        ])
+        let draft = try await FlashcardGenerationService(llmService: llm.mock).card(
+            for: "  ging ", context: nil, meaningLanguage: .english)
+        XCTAssertEqual(draft.front, "gehen")
+        XCTAssertEqual(draft.back, "to go\ne.g. Wir gehen.\n→ We go.")
+        XCTAssertNil(draft.context)
+        XCTAssertEqual(llm.inputs, [#"[{"context":"","word":"ging"}]"#])
+    }
+
+    func testSelectedWordPromptAsksForDictionaryForm() {
+        XCTAssertTrue(FlashcardGenerationService.cardPrompt(language: .english, normalizeWords: true)
+            .contains("dictionary form, in the word's own language"))
+        XCTAssertTrue(FlashcardGenerationService.cardPrompt(language: .english)
+            .contains("exactly as given"))
+    }
+
+    func testEmptySelectionIsRejectedWithoutCallingTheProvider() async {
+        let llm = scriptedLLM([])
+        do {
+            _ = try await FlashcardGenerationService(llmService: llm.mock).card(
+                for: " \n", context: nil, meaningLanguage: .english)
+            XCTFail("expected emptySelection")
+        } catch {
+            XCTAssertEqual(error as? FlashcardGenerationError, .emptySelection)
+        }
+        XCTAssertTrue(llm.inputs.isEmpty)
+    }
+
     /// Mock that answers successive prompt calls in order and records inputs.
     private func scriptedLLM(_ responses: [String]) -> ScriptedLLM {
         let llm = ScriptedLLM()
@@ -309,4 +340,26 @@ private final class ScriptedLLM: @unchecked Sendable {
     let mock = MockLLMService()
     var queue: [String] = []
     var inputs: [String] = []
+}
+
+final class FlashcardQuickCaptureTests: XCTestCase {
+    func testShortSelectionsMakeOneCardAndLongerOnesAreScanned() {
+        XCTAssertTrue(FlashcardQuickCapture.isSingleCardSelection("Bank"))
+        XCTAssertTrue(FlashcardQuickCapture.isSingleCardSelection("sich freuen auf"))
+        XCTAssertFalse(FlashcardQuickCapture.isSingleCardSelection("  "))
+        XCTAssertFalse(FlashcardQuickCapture.isSingleCardSelection("Ich bin heute mit dem Zug gefahren."))
+    }
+
+    func testHotkeyDefaultsToControlOptionKAndPersists() throws {
+        let suite = "FlashcardQuickCaptureTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertEqual(FlashcardQuickCapture.hotkey(defaults: defaults), .chord(modifiers: ["control", "option"], keyCode: 40))
+
+        let posted = expectation(forNotification: .flashcardHotkeyTriggerDidChange, object: nil)
+        FlashcardQuickCapture.setHotkey(.disabled, defaults: defaults)
+        wait(for: [posted], timeout: 1)
+        XCTAssertEqual(FlashcardQuickCapture.hotkey(defaults: defaults), .disabled)
+    }
 }

@@ -279,20 +279,55 @@ public final class FlashcardsViewModel {
         maxCards: Int,
         focus: FlashcardFocus = FlashcardFocus()
     ) {
+        runGeneration { generator, known in
+            try await generator.generate(
+                from: transcript, style: style, meaningLanguage: meaningLanguage, maxCards: maxCards,
+                focus: focus, excluding: known)
+        }
+    }
+
+    /// Makes cards from text selected anywhere on the Mac: a word or short
+    /// phrase becomes one card in dictionary form; a longer selection is
+    /// scanned for vocabulary.
+    public func generateDrafts(fromSelection selection: String, meaningLanguage: TranslationLanguage) {
+        let text = String(
+            selection.trimmingCharacters(in: .whitespacesAndNewlines)
+                .prefix(FlashcardQuickCapture.maxSelectionCharacters))
+        guard !text.isEmpty else {
+            errorMessage = FlashcardGenerationError.emptySelection.localizedDescription
+            return
+        }
+        guard FlashcardQuickCapture.isSingleCardSelection(text) else {
+            generateDrafts(from: text, style: .vocabulary, meaningLanguage: meaningLanguage, maxCards: 10)
+            return
+        }
+        // Strip quotes and punctuation picked up with a double-click selection.
+        let word = text.trimmingCharacters(in: .punctuationCharacters.union(.symbols).union(.whitespaces))
+        runGeneration { generator, _ in
+            [try await generator.card(for: word.isEmpty ? text : word, context: nil, meaningLanguage: meaningLanguage)]
+        }
+    }
+
+    private func runGeneration(
+        _ work: @escaping @Sendable (FlashcardGenerating, Set<String>) async throws -> [FlashcardDraft]
+    ) {
         guard let generator, !isGenerating else { return }
         isGenerating = true
         errorMessage = nil
+        statusMessage = nil
         // Words already saved in any deck or waiting as drafts are not re-made.
         let savedFronts = (try? repository?.allFronts()) ?? []
         let known = Set((savedFronts + drafts.map(\.front)).map(FlashcardDraft.duplicateKey))
         generationTask = Task { [weak self] in
             do {
-                let result = try await generator.generate(
-                    from: transcript, style: style, meaningLanguage: meaningLanguage, maxCards: maxCards,
-                    focus: focus, excluding: known)
+                let result = try await work(generator, known)
                 guard let self else { return }
-                var seen = Set(self.drafts.map { FlashcardDraft.duplicateKey($0.front) })
-                self.drafts.append(contentsOf: result.filter { seen.insert(FlashcardDraft.duplicateKey($0.front)).inserted })
+                var seen = known
+                let fresh = result.filter { seen.insert(FlashcardDraft.duplicateKey($0.front)).inserted }
+                if fresh.isEmpty, let first = result.first {
+                    self.statusMessage = "“\(first.front)” is already in your decks."
+                }
+                self.drafts.append(contentsOf: fresh)
             } catch is CancellationError {
             } catch {
                 self?.errorMessage = error.localizedDescription
