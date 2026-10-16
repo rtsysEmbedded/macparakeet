@@ -11,6 +11,7 @@ extension UTType {
 /// the right. Import and export use Anki's `.apkg` format.
 struct FlashcardsView: View {
     @Bindable var viewModel: FlashcardsViewModel
+    var onHotkeyRecordingStateChanged: ((Bool) -> Void)? = nil
 
     @State private var showingImporter = false
     @State private var showingNewDeck = false
@@ -19,6 +20,7 @@ struct FlashcardsView: View {
     @State private var renameText = ""
     @State private var deletingDeck: FlashcardDeckSummary?
     @State private var showingAddCard = false
+    @State private var quickCardHotkey = FlashcardQuickCapture.hotkey()
 
     var body: some View {
         HSplitView {
@@ -209,6 +211,8 @@ struct FlashcardsView: View {
                 .disabled(due + fresh == 0)
             }
 
+            quickCardShortcutRow
+
             if total == 0 {
                 emptyState
             } else if summary != nil {
@@ -221,6 +225,29 @@ struct FlashcardsView: View {
             }
         }
         .padding(DesignSystem.Spacing.lg)
+    }
+
+    private var quickCardShortcutRow: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Card from selected word")
+                    .font(DesignSystem.Typography.bodySmall.weight(.semibold))
+                Text("Select a word in any app and press this shortcut to make a card for it with AI.")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            }
+            Spacer(minLength: DesignSystem.Spacing.md)
+            HotkeyRecorderView(
+                trigger: $quickCardHotkey,
+                defaultTrigger: FlashcardQuickCapture.defaultHotkey,
+                onRecordingStateChanged: onHotkeyRecordingStateChanged
+            )
+        }
+        .padding(DesignSystem.Spacing.sm)
+        .background(RoundedRectangle(cornerRadius: 8).fill(DesignSystem.Colors.surfaceElevated))
+        .onChange(of: quickCardHotkey) { _, trigger in
+            FlashcardQuickCapture.setHotkey(trigger)
+        }
     }
 
     private func stat(_ title: String, _ value: Int, _ color: Color) -> some View {
@@ -238,7 +265,7 @@ struct FlashcardsView: View {
                 .foregroundStyle(DesignSystem.Colors.textTertiary)
             Text("No cards yet")
                 .font(DesignSystem.Typography.sectionTitle)
-            Text("Open a transcript and choose **Make Flashcards**, or import an Anki deck (.apkg).")
+            Text("Select a word anywhere and press the shortcut above, open a transcript and choose **Make Flashcards**, or import an Anki deck (.apkg).")
                 .font(DesignSystem.Typography.bodySmall)
                 .foregroundStyle(DesignSystem.Colors.textSecondary)
                 .multilineTextAlignment(.center)

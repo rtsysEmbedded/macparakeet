@@ -55,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `TransformsHotkeyRegistry` + dispatch from registered hotkeys to the
     /// `TransformExecutor` pipeline. Gated on `AppFeatures.transformsEnabled`.
     private var transformsCoordinator: TransformsCoordinator?
+    private var flashcardHotkeyCoordinator: FlashcardHotkeyCoordinator?
     private var voiceControlCoordinator: VoiceControlCoordinator?
     private var liveCaptionsViewModel: LiveCaptionsViewModel?
     private var liveCaptionsController: LiveCaptionsWindowController?
@@ -451,6 +452,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         meetingAutoStartCoordinator?.stop()
         meetingAutoStopCoordinator?.stop()
         transformsCoordinator?.stop()
+        flashcardHotkeyCoordinator?.stop()
         voiceControlCoordinator?.shutdown()
         settingsObserverCoordinator.stopObserving()
         environmentSetupTask?.cancel()
@@ -741,6 +743,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             transforms?.menuBarListings() ?? []
         }
 
+        // Global shortcut: make an Anki flashcard from the selected word.
+        let flashcards = FlashcardHotkeyCoordinator(
+            repository: env.flashcardRepo,
+            llmServiceProvider: llmServiceProvider,
+            onCardsSaved: { [weak self] in self?.transcriptionViewModel.flashcardsViewModel.reload() },
+            onLLMProviderRequired: { [weak self] in
+                self?.windowCoordinator.openMainWindowToSettings(tab: .ai)
+            }
+        )
+        flashcards.start()
+        flashcardHotkeyCoordinator = flashcards
+
         if AppFeatures.isVoiceControlAvailable() {
             let control = VoiceControlCoordinator(
                 sharedMicStream: env.sharedMicStream,
@@ -943,6 +957,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyCoordinator?.refreshAllHotkeys()
         if !isHotkeyRecorderActive {
             transformsCoordinator?.resumeHotkeys()
+            flashcardHotkeyCoordinator?.resume()
         }
     }
 
@@ -1103,6 +1118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onboardingHotkeyPreviewController.setCapturePaused(true)
             hotkeyCoordinator?.suspend()
             transformsCoordinator?.suspendHotkeys()
+            flashcardHotkeyCoordinator?.suspend()
             voiceControlCoordinator?.suspendHotkey()
         } else {
             guard activeHotkeyRecorderSessions > 0 else { return }
@@ -1110,6 +1126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard activeHotkeyRecorderSessions == 0 else { return }
             hotkeyCoordinator?.resume()
             transformsCoordinator?.resumeHotkeys()
+            flashcardHotkeyCoordinator?.resume()
             voiceControlCoordinator?.installHotkey()
             onboardingHotkeyPreviewController.setCapturePaused(false)
         }

@@ -326,7 +326,10 @@ struct MainWindowView: View {
                             backupViewModel: vocabularyBackupViewModel
                         )
                     case .flashcards:
-                        FlashcardsView(viewModel: transcriptionViewModel.flashcardsViewModel)
+                        FlashcardsView(
+                            viewModel: transcriptionViewModel.flashcardsViewModel,
+                            onHotkeyRecordingStateChanged: onHotkeyRecordingStateChanged
+                        )
                     case .feedback:
                         FeedbackView(viewModel: feedbackViewModel)
                     case .settings:

@@ -69,16 +69,26 @@ public protocol FlashcardGenerating: Sendable {
         focus: FlashcardFocus,
         excluding knownKeys: Set<String>
     ) async throws -> [FlashcardDraft]
+
+    /// One card for a word or short phrase the user selected, turned into
+    /// its dictionary form.
+    func card(
+        for word: String,
+        context: String?,
+        meaningLanguage: TranslationLanguage
+    ) async throws -> FlashcardDraft
 }
 
 public enum FlashcardGenerationError: Error, LocalizedError, Equatable {
     case emptyTranscript
     case noCards
     case allWordsKnown
+    case emptySelection
 
     public var errorDescription: String? {
         switch self {
         case .emptyTranscript: return "There is no transcript text to make cards from."
+        case .emptySelection: return "Select a word first, then press the shortcut."
         case .noCards: return "The AI provider did not return any usable cards. Try again or use a stronger model."
         case .allWordsKnown: return "Every word found in this transcript is already in your decks."
         }
@@ -142,6 +152,21 @@ public struct FlashcardGenerationService: FlashcardGenerating {
         return Array(drafts.prefix(maxCards))
     }
 
+    public func card(
+        for word: String,
+        context: String?,
+        meaningLanguage: TranslationLanguage
+    ) async throws -> FlashcardDraft {
+        let word = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !word.isEmpty else { throw FlashcardGenerationError.emptySelection }
+        let response = try await llmService.generatePromptResult(
+            transcript: Self.wordListInput([ExtractedWord(word: word, context: context)]),
+            systemPrompt: Self.cardPrompt(language: meaningLanguage, normalizeWords: true)
+        )
+        guard let draft = Self.parse(response).first else { throw FlashcardGenerationError.noCards }
+        return draft
+    }
+
     static func systemPrompt(
         style: FlashcardStyle,
         language: TranslationLanguage,
@@ -188,15 +213,20 @@ public struct FlashcardGenerationService: FlashcardGenerating {
     }
 
     /// Second vocabulary step: turns an already-chosen word list into cards.
-    static func cardPrompt(language: TranslationLanguage) -> String {
-        """
+    /// With `normalizeWords`, the words are raw user selections that may be
+    /// conjugated or inflected, so the model puts them in dictionary form.
+    static func cardPrompt(language: TranslationLanguage, normalizeWords: Bool = false) -> String {
+        let frontRule = normalizeWords
+            ? #"- "front": the word in its dictionary form, in the word's own language. Verbs ALWAYS in the infinitive (e.g. "ging" -> "gehen", "went" -> "to go"; separable or reflexive verbs in full). Nouns in the singular with their article if the language has one. Adjectives in their base form. Fix obvious typos and stray punctuation."#
+            : #"- "front": the word exactly as given (already in dictionary form; verbs in the infinitive)."#
+        return """
         You create Anki flashcards for the given words. The input is a JSON array of {"word", "context"} items; make exactly one card per item, in the same order.
-        - "front": the word exactly as given (already in dictionary form; verbs in the infinitive).
+        \(frontRule)
         - "meanings": every common meaning of the word (a word with several meanings gets one entry per meaning, the one used in "context" first). Each entry has:
           - "meaning": the meaning in \(language.displayName) (\(language.nativeName)), short.
           - "example": a short, natural example sentence in the word's language that uses it in that meaning.
           - "translation": that example sentence translated into \(language.displayName).
-        - "context": the given context sentence, unchanged.
+        - "context": the given context sentence, unchanged (leave it out when none is given).
         - "context_translation": that sentence translated into \(language.displayName).
 
         Output ONLY a JSON array, no prose and no code fences, like:
